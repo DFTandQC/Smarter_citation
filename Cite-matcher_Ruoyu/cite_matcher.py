@@ -1,4 +1,4 @@
-# cite_matcher.py
+# cite_matcher.py Ruoyu Tang
 import os, re, json, time, math, yaml, pathlib, requests, argparse, textwrap
 from datetime import datetime
 from typing import List, Dict, Any
