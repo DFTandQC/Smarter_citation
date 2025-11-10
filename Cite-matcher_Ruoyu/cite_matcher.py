@@ -294,3 +294,5 @@ if __name__ == "__main__":
     print(f"Found {len(res)} candidates (Top-{TOP_N}). 输出已写入：\n- {OUT_JSONL}\n- {OUT_BIB}")
     for i, it in enumerate(res, 1):
         print(f"{i}. {it.get('title')} ({it.get('journal')}, {it.get('year')}) doi:{it.get('doi')}  OA:{it.get('is_oa')}")
+
+
