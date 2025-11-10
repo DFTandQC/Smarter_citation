@@ -1,4 +1,4 @@
-# cite_matcher.py auto-matches
+# cite_matcher.py auto-matches citations and builds bibliographic entries
 import os, re, json, time, math, yaml, pathlib, requests, argparse, textwrap
 from datetime import datetime
 from typing import List, Dict, Any
