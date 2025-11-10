@@ -1,4 +1,4 @@
-# cite_matcher.py auto-matches citations and builds bibliographic entries
+# cite_matcher.py auto-matches citations for a given paragraph using Kimi, WOS, Crossref, and OpenAlex. 
 import os, re, json, time, math, yaml, pathlib, requests, argparse, textwrap
 from datetime import datetime
 from typing import List, Dict, Any
