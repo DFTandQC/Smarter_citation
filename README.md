@@ -2,7 +2,7 @@
 **CitationFinder: AI-powered Reference Matching for Academic Writing**
 
 # Cite mathcer
-# Author: Ruoyu Tang
+Author: Ruoyu Tang
 
 > 🧠 一款基于 Kimi (Moonshot AI) + Web of Science + Crossref + OpenAlex 的智能引用工具，  
 > 能根据论文段落自动检索高质量参考文献并输出 BibTeX/JSON 格式。
@@ -25,21 +25,6 @@
 ---
 
 ## 🧩 系统架构 | Architecture
-
-Paragraph (论文段落 / Academic paragraph)
-│
-▼
-[Kimi Extractor]
-└─ topics / keywords / entities / year_from / year_to
-│
-├── Web of Science (metadata, DOI)
-├── Crossref (publisher info, authors)
-└── OpenAlex (open data source)
-│
-▼
-[Deduplicate by DOI] → [Relevance Scoring] → [Unpaywall OA Check]
-│
-└── Top-N References → JSONL + BibTeX
 
 
 ---
