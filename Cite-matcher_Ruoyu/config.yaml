@@ -4,8 +4,8 @@ llm:
   model: "kimi-k2-turbo-preview"           # 或你账号可用的其它模型
 
 wos:
-  api_url: "https://api.clarivate.com/apis/wos-starter/v1/documents"
-  api_key: "YOUR_WOS_API_KEY"
+  api_url: "https://wos-api.clarivate.com/api/wos"
+  api_key: "3e41a6a70aa8e8459cda1af3b5dbaf0a3f380bc1"
   years_back: 15                           # 默认时间窗（近几年）
 
   # 命中这些期刊可加分（可增删）
