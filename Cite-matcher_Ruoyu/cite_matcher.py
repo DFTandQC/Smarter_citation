@@ -1,6 +1,6 @@
 # cite_matcher.py auto-matches citations for a given paragraph using Kimi, WOS, Crossref, and OpenAlex. 
-import os, re, json, time, math, yaml, pathlib, requests, argparse, textwrap
-from datetime import datetime
+import os, re, json, time, math, yaml, pathlib, requests, argparse, textwrap, unicodedata, sys
+from datetime import datetime, timezone
 from typing import List, Dict, Any
 from kimi_extract_query import KimiExtractor
 
@@ -15,6 +15,7 @@ WOS_URL      = CFG["wos"]["api_url"]
 WOS_KEY      = CFG["wos"]["api_key"]
 YEARS_BACK   = int(CFG["wos"]["years_back"])
 WL_JOURNALS  = [j.lower() for j in CFG["wos"]["journal_whitelist"]]
+WOS_DB       = CFG["wos"].get("database_id", "WOS")
 
 CR_URL       = CFG["crossref"]["works_endpoint"]
 CR_MAILTO    = CFG["crossref"]["polite_mailto"]
@@ -26,9 +27,31 @@ UNPAY_EMAIL  = CFG["unpaywall"]["email"]
 OUT_DIR      = pathlib.Path(CFG["output"]["out_dir"]); OUT_DIR.mkdir(parents=True, exist_ok=True)
 OUT_JSONL    = pathlib.Path(CFG["output"]["results_json"])
 OUT_BIB      = pathlib.Path(CFG["output"]["bibtex_path"])
+OUT_RIS      = pathlib.Path(CFG["output"]["ris_path"])
 TOP_N        = int(CFG["output"]["top_n"])
 
-NOW_YEAR     = datetime.utcnow().year
+NOW_YEAR     = datetime.now(timezone.utc).year
+
+
+def sanitize_keyword(k: str) -> str:
+    """Normalize a keyword for use in WOS queries.
+
+    - Normalize unicode to NFKC
+    - Replace en/em dashes with ASCII hyphen
+    - Remove non-ASCII characters (encoded away) to avoid API rejecting them
+    - Collapse whitespace
+    """
+    if not k:
+        return k
+    k = unicodedata.normalize("NFKC", k)
+    # replace common dash characters with ASCII hyphen
+    k = k.replace('\u2013', '-').replace('\u2014', '-')
+    # remove control chars and normalize spaces
+    k = re.sub(r'[\r\n\t]+', ' ', k)
+    # drop non-ascii to avoid unexpected percent-encodings the API might reject
+    k = k.encode('ascii', 'ignore').decode('ascii')
+    k = re.sub(' +', ' ', k).strip()
+    return k
 
 # ============ 小工具 ============
 def norm(s: str) -> str:
@@ -70,23 +93,59 @@ def wos_search(intents: Dict[str,Any]) -> List[Dict]:
     kws = intents.get("keywords") or intents.get("topics") or []
     if not kws:
         return []
-    q = " OR ".join([f"TS=({k})" for k in kws])
+    # sanitize keywords to avoid unicode characters (e.g. en-dash) that may cause API 400
+    kws = [sanitize_keyword(k) for k in kws]
+    kws = [k for k in kws if k]
+    if not kws:
+        return []
+    # build query: prefer TS=(term) but if API rejects (400) we'll retry quoting multi-word terms
+    def build_q(use_quotes: bool = False) -> str:
+        parts = []
+        for k in kws:
+            if use_quotes and ' ' in k:
+                parts.append(f'TS=("{k}")')
+            else:
+                parts.append(f"TS=({k})")
+        return " OR ".join(parts)
+
+    q = build_q(use_quotes=False)
     year_from = intents.get("year_from")
     year_to   = intents.get("year_to")
 
     params = {
-        "q": q,
+        "databaseId": WOS_DB,
+        "usrQuery": q,
         "from": 0,
         "limit": 50,
         "sort": "load_date:desc",
         "publication_year_from": year_from,
         "publication_year_to": year_to
     }
-    headers = {"X-ApiKey": WOS_KEY, "Accept": "application/json"}
+    headers = {"X-ApiKey": WOS_KEY, "Accept": "application/json", "Content-Type": "application/json"}
     out = []
+    tried_quoted = False
     while True:
-        r = requests.get(WOS_URL, params=params, headers=headers, timeout=60)
-        r.raise_for_status()
+        try:
+            # WOS API expects query in JSON body, not URL params
+            r = requests.post(WOS_URL, json=params, headers=headers, timeout=60)
+            r.raise_for_status()
+        except requests.exceptions.HTTPError as e:
+            # if WOS returns 400, retry once with quoted multi-word terms
+            status = getattr(e.response, 'status_code', None)
+            body = None
+            try:
+                body = e.response.text
+            except Exception:
+                body = None
+            print(f"WOS HTTP error {status}. Response body: {body}", file=sys.stderr)
+            if status == 400 and not tried_quoted:
+                tried_quoted = True
+                q = build_q(use_quotes=True)
+                params["usrQuery"] = q
+                print("Retrying WOS query with quoted multi-word keywords...", file=sys.stderr)
+                time.sleep(0.2)
+                continue
+            raise
         data = r.json()
         hits = data.get("hits") or data.get("data") or []
         for it in hits:
@@ -247,6 +306,44 @@ def build_csl_json(item: Dict[str,Any]) -> Dict[str,Any]:
         "author": authors
     }
 
+def build_ris(item: Dict[str,Any]) -> str:
+    """Build RIS format (RefMan) citation."""
+    ris_lines = []
+    ris_lines.append("TY  - JOUR")  # Type: Journal Article
+    
+    title = norm(item.get("title"))
+    if title:
+        ris_lines.append(f"TI  - {title}")
+    
+    # Authors
+    authors = [a for a in (item.get("authors") or []) if a]
+    for author in authors:
+        ris_lines.append(f"AU  - {author}")
+    
+    journal = norm(item.get("journal"))
+    if journal:
+        ris_lines.append(f"JO  - {journal}")
+    
+    year = norm(str(item.get("year") or ""))
+    if year:
+        ris_lines.append(f"PY  - {year}")
+    
+    doi = norm(item.get("doi"))
+    if doi:
+        ris_lines.append(f"DO  - {doi}")
+    
+    source = item.get("source", "")
+    if source:
+        ris_lines.append(f"DB  - {source}")
+    
+    is_oa = item.get("is_oa", False)
+    oa_url = item.get("oa_url", "")
+    if is_oa and oa_url:
+        ris_lines.append(f"UR  - {oa_url}")
+    
+    ris_lines.append("ER  - ")
+    return "\n".join(ris_lines)
+
 # ============ 6) 主流程 ============
 def find_citations(paragraph: str) -> List[Dict[str,Any]]:
     intents = extract_intents(paragraph)
@@ -266,12 +363,14 @@ def find_citations(paragraph: str) -> List[Dict[str,Any]]:
     top = pool[:TOP_N]
 
     # 输出
-    with open(OUT_JSONL, "a", encoding="utf-8") as fj, open(OUT_BIB, "a", encoding="utf-8") as fb:
+    with open(OUT_JSONL, "a", encoding="utf-8") as fj, open(OUT_BIB, "a", encoding="utf-8") as fb, open(OUT_RIS, "a", encoding="utf-8") as fr:
         for it in top:
             it["bibtex"]   = build_bibtex(it)
             it["csl_json"] = build_csl_json(it)
+            it["ris"]      = build_ris(it)
             fj.write(json.dumps(it, ensure_ascii=False) + "\n")
             fb.write("\n\n" + it["bibtex"] + "\n")
+            fr.write("\n" + it["ris"] + "\n")
 
     return top
 
@@ -291,7 +390,7 @@ if __name__ == "__main__":
         raise SystemExit(1)
 
     res = find_citations(paragraph)
-    print(f"Found {len(res)} candidates (Top-{TOP_N}). 输出已写入：\n- {OUT_JSONL}\n- {OUT_BIB}")
+    print(f"Found {len(res)} candidates (Top-{TOP_N}). 输出已写入：\n- {OUT_JSONL}\n- {OUT_BIB}\n- {OUT_RIS}")
     for i, it in enumerate(res, 1):
         print(f"{i}. {it.get('title')} ({it.get('journal')}, {it.get('year')}) doi:{it.get('doi')}  OA:{it.get('is_oa')}")
 

@@ -6,6 +6,7 @@ llm:
 wos:
   api_url: "https://wos-api.clarivate.com/api/wos"
   api_key: "3e41a6a70aa8e8459cda1af3b5dbaf0a3f380bc1"
+  database_id: "WOS"
   years_back: 15                           # 默认时间窗（近几年）
 
   # 命中这些期刊可加分（可增删）
@@ -34,4 +35,5 @@ output:
   out_dir: "out"
   results_json: "out/candidate_refs.jsonl"
   bibtex_path: "out/candidate_refs.bib"
+  ris_path: "out/candidate_refs.ris"
   top_n: 12
