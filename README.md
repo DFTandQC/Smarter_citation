@@ -75,8 +75,10 @@
 ## ⚙️ 安装与运行 | Installation & Usage
 
 ### 1️⃣ 安装依赖 / Install dependencies
+
 ```bash
 pip install openai requests pyyaml
+```
 
 ### 2️⃣ 编辑配置文件 / Edit config.yaml
 
@@ -86,11 +88,14 @@ Kimi API Key（Moonshot 平台）
 Web of Science API Key
 Crossref polite_email
 Unpaywall 邮箱
+```
 
 ### 3️⃣ 运行程序 / Run the program
+
 ```bash
 # 输入一段文本
 python cite_matcher.py --text "我们研究喷气发动机润滑油在高温下的成核机制..."
 
 # 或从文件读取
 python cite_matcher.py --file paragraph.txt
+```
