@@ -74,9 +74,8 @@ Author: Ruoyu Tang
 
 ## ⚙️ 安装与运行 | Installation & Usage
 
-## 1️⃣ 安装依赖 / Install dependencies
+1️⃣ 安装依赖 / Install dependencies
 
-```bash
 pip install openai requests pyyaml
 
 2️⃣ 编辑配置文件 / Edit config.yaml
