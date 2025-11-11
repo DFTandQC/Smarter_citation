@@ -74,6 +74,7 @@ Author: Ruoyu Tang
 
 ## ⚙️ 安装与运行 | Installation & Usage
 
+```bash
 1️⃣ 安装依赖 / Install dependencies
 
 pip install openai requests pyyaml
