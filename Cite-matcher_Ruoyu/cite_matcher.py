@@ -248,6 +248,74 @@ def score_candidate(paragraph: str, intents: Dict[str,Any], item: Dict[str,Any])
 
     return 2.0*kw_hits + 1.5*topic_hits + 1.2*j_bonus + 1.0*title_overlap + 2.0*recency
 
+# ============ 3b) 获取论文摘要 ============
+def fetch_abstract(doi: str) -> str:
+    """Fetch abstract from Crossref API using DOI."""
+    if not doi:
+        return ""
+    try:
+        url = f"{CR_URL}{doi}"
+        headers = {"User-Agent": f"cite-matcher (mailto:{CR_MAILTO})"}
+        r = requests.get(url, headers=headers, timeout=10)
+        if r.status_code == 200:
+            data = r.json().get("message", {})
+            abstract = data.get("abstract", "")
+            return abstract if abstract else ""
+    except Exception:
+        pass
+    return ""
+
+# ============ 3c) Kimi 相关性评分 ============
+def kimi_score_relevance(paragraph: str, item: Dict[str,Any], intents: Dict[str,Any]) -> float:
+    """Use Kimi to score paper relevance based on title + abstract against input paragraph."""
+    title = norm(item.get("title"))
+    abstract = norm(item.get("abstract", ""))
+    
+    if not title:
+        return 0.0
+    
+    # If no abstract, use Kimi to score just the title
+    paper_info = f"Title: {title}"
+    if abstract:
+        paper_info += f"\n\nAbstract: {abstract[:500]}"  # Limit abstract length to save tokens
+    
+    try:
+        extractor = KimiExtractor(api_key=LLM_API_KEY, base_url=LLM_BASE_URL, model=LLM_MODEL)
+        score_prompt = f"""
+You are evaluating the relevance of a paper to a research context.
+
+Research paragraph (your context):
+{paragraph}
+
+Paper information:
+{paper_info}
+
+Rate the relevance on a scale of 0-10, where:
+- 0-2: Not relevant
+- 3-4: Loosely related
+- 5-6: Moderately relevant
+- 7-8: Highly relevant
+- 9-10: Directly relevant
+
+Return ONLY a JSON object with a single field "relevance_score" (integer from 0-10). No other text.
+"""
+        score_response = extractor.client.chat.completions.create(
+            model=extractor.model,
+            messages=[
+                {"role": "user", "content": score_prompt}
+            ],
+            temperature=0.3,
+            response_format={"type": "json_object"},
+        )
+        score_content = score_response.choices[0].message.content
+        score_json = json.loads(score_content)
+        score = float(score_json.get("relevance_score", 0))
+        # Normalize to 0-2 scale to match with other scoring components
+        return score / 5.0
+    except Exception as e:
+        print(f"Kimi scoring failed for DOI {item.get('doi')}: {e}", file=sys.stderr)
+        return 0.0
+
 # ============ 4) Unpaywall 标注 OA ============
 def unpaywall_oa(doi: str) -> Dict[str,Any]:
     if not doi: return {"is_oa": False}
@@ -354,8 +422,24 @@ def find_citations(paragraph: str) -> List[Dict[str,Any]]:
     pool += openalex_search(intents)
     pool = dedup_by_doi(pool)
 
+    # Fetch abstracts from Crossref for each paper
+    print("Fetching abstracts...", file=sys.stderr)
     for it in pool:
-        it["score"] = score_candidate(paragraph, intents, it)
+        doi = it.get("doi")
+        if doi:
+            abstract = fetch_abstract(doi)
+            it["abstract"] = abstract
+        else:
+            it["abstract"] = ""
+
+    # Score candidates using both traditional and Kimi-based methods
+    print("Scoring candidates with Kimi...", file=sys.stderr)
+    for it in pool:
+        traditional_score = score_candidate(paragraph, intents, it)
+        kimi_score = kimi_score_relevance(paragraph, it, intents)
+        # Combine scores: 70% traditional, 30% Kimi-based
+        it["score"] = 0.7 * traditional_score + 0.3 * kimi_score
+    
     for it in pool:
         it.update(unpaywall_oa(it.get("doi","")))
 

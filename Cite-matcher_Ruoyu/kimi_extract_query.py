@@ -9,7 +9,7 @@ class KimiExtractor:
 
     def extract(self, paragraph: str, years_back: int = 10) -> dict:
         """
-        输出严格 JSON：
+        Output strict JSON:
         {
           "topics": [...3-5],
           "keywords": [...5-10],
@@ -19,21 +19,25 @@ class KimiExtractor:
         }
         """
         system_prompt = (
-            "你是一个科研助理，任务是从论文段落中抽取用于学术检索的核心信息。"
-            "只返回严格 JSON，键包括：topics（3-5个主题短语），"
-            "keywords（5-10个高价值检索词），entities（0-6个专名），"
-            "year_from，year_to。不要输出任何除 JSON 以外的内容。"
+            "You are a scientific research assistant specializing in atmospheric aerosol science, "
+            "nucleation processes, and aircraft engine emissions. "
+            "Extract search-relevant information from the given paragraph and return ONLY valid JSON. "
+            "Do not include any explanatory text or markdown formatting."
         )
         user_prompt = f"""
-段落内容：
+Paragraph:
 {paragraph}
 
-请抽取：
-1. topics: 3-5 个主题短语；
-2. keywords: 5-10 个高价值检索词（包括英文术语、化学式、方法名）；
-3. entities: 0-6 个重要实体（作者、机构、化学物质、模型名等）；
-4. year_from, year_to: 估计适合的文献时间窗（默认近 {years_back} 年）。
-严格输出 JSON。
+Research context: Atmospheric new particle formation, aerosols, nucleation processes, aircraft engine particles, new particle formation around airports.
+
+Extract and return JSON with these fields:
+1. "topics": 3-5 main research areas/themes (e.g., "new particle formation", "nucleation mechanism", "aircraft emissions")
+2. "keywords": 5-10 specific search terms, methods, substances, acronyms (e.g., "NPF", "organic", "ion-induced nucleation", "engine PM emissions")
+3. "entities": 0-6 relevant organizations, research groups, airports, or specific studies (e.g., "CERN", "CLOUD", "Frankfurt Airport"). Use empty array [] if none.
+4. "year_from": earliest relevant publication year (consider field maturity and research recency)
+5. "year_to": latest year (typically {2025 - years_back} to {2025})
+
+Return ONLY valid JSON, no other text.
 """
         completion = self.client.chat.completions.create(
             model=self.model,
@@ -48,5 +52,5 @@ class KimiExtractor:
         try:
             return json.loads(content)
         except Exception:
-            # 若未能解析为 JSON，则返回空字典并让上游处理兜底
+            # If JSON parsing fails, return empty dict for upstream fallback handling
             return {}
