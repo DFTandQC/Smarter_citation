@@ -8,6 +8,8 @@ wos:
   api_key: "3e41a6a70aa8e8459cda1af3b5dbaf0a3f380bc1"
   database_id: "WOS"
   years_back: 15                           # 默认时间窗（近几年）
+  # Pagination / fetch limits (adjust to control how many results are fetched per page)
+  limit: 100
 
   # 命中这些期刊可加分（可增删）
   journal_whitelist:
@@ -23,9 +25,13 @@ wos:
 crossref:
   works_endpoint: "https://api.crossref.org/works/"
   polite_mailto: "ruoyu.tang@helsinki.fi"   # Crossref 建议提供邮箱做礼貌标识
+  # Number of rows per Crossref query
+  rows: 100
 
 openalex:
   works_endpoint: "https://api.openalex.org/works"  # 作为补充/兜底源
+  # Number of items per OpenAlex page
+  per_page: 100
 
 unpaywall:
   endpoint: "https://api.unpaywall.org/v2/"

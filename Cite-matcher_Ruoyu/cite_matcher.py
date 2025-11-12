@@ -16,10 +16,13 @@ WOS_KEY      = CFG["wos"]["api_key"]
 YEARS_BACK   = int(CFG["wos"]["years_back"])
 WL_JOURNALS  = [j.lower() for j in CFG["wos"]["journal_whitelist"]]
 WOS_DB       = CFG["wos"].get("database_id", "WOS")
+WOS_LIMIT    = int(CFG["wos"].get("limit", 50))
 
 CR_URL       = CFG["crossref"]["works_endpoint"]
 CR_MAILTO    = CFG["crossref"]["polite_mailto"]
+CR_ROWS      = int(CFG["crossref"].get("rows", 50))
 OALEX_URL    = CFG["openalex"]["works_endpoint"]
+OA_PER_PAGE  = int(CFG["openalex"].get("per_page", 50))
 
 UNPAY_URL    = CFG["unpaywall"]["endpoint"]
 UNPAY_EMAIL  = CFG["unpaywall"]["email"]
@@ -29,6 +32,11 @@ OUT_JSONL    = pathlib.Path(CFG["output"]["results_json"])
 OUT_BIB      = pathlib.Path(CFG["output"]["bibtex_path"])
 OUT_RIS      = pathlib.Path(CFG["output"]["ris_path"])
 TOP_N        = int(CFG["output"]["top_n"])
+KIMI_CACHE_PATH = OUT_DIR / "kimi_cache.json"
+
+# Controls for Kimi/LLM usage. Can be overridden by CLI args later.
+MAX_KIMI_MULTIPLIER = 2
+KIMI_ENABLED = True
 
 NOW_YEAR     = datetime.now(timezone.utc).year
 
@@ -83,7 +91,7 @@ def extract_intents(paragraph: str) -> dict:
         intents["year_from"] = NOW_YEAR - YEARS_BACK
         intents["year_to"] = NOW_YEAR
     # 清洗关键词长度
-    intents["keywords"] = [k for k in (intents.get("keywords") or []) if len(k.strip())>1][:10]
+    intents["keywords"] = [k for k in (intents.get("keywords") or []) if len(k.strip())>1][:15]
     intents["topics"]   = intents.get("topics") or []
     return intents
 
@@ -116,7 +124,7 @@ def wos_search(intents: Dict[str,Any]) -> List[Dict]:
         "databaseId": WOS_DB,
         "usrQuery": q,
         "from": 0,
-        "limit": 50,
+        "limit": WOS_LIMIT,
         "sort": "load_date:desc",
         "publication_year_from": year_from,
         "publication_year_to": year_to
@@ -173,7 +181,7 @@ def crossref_search(intents: Dict[str,Any]) -> List[Dict]:
     if not kw: return []
     year_from = intents.get("year_from")
     year_to   = intents.get("year_to")
-    params = {"query": kw, "filter": f"from-pub-date:{year_from}-01-01,until-pub-date:{year_to}-12-31", "rows": 50}
+    params = {"query": kw, "filter": f"from-pub-date:{year_from}-01-01,until-pub-date:{year_to}-12-31", "rows": CR_ROWS}
     headers = {"User-Agent": f"cite-matcher (mailto:{CR_MAILTO})"}
     r = requests.get(CR_URL, params=params, headers=headers, timeout=60)
     if r.status_code != 200: return []
@@ -199,7 +207,7 @@ def openalex_search(intents: Dict[str,Any]) -> List[Dict]:
         "search": kw,
         "from_publication_date": f"{year_from}-01-01",
         "to_publication_date": f"{year_to}-12-31",
-        "per_page": 50
+        "per_page": OA_PER_PAGE
     }
     r = requests.get(OALEX_URL, params=params, timeout=60)
     if r.status_code != 200: return []
@@ -264,6 +272,32 @@ def fetch_abstract(doi: str) -> str:
     except Exception:
         pass
     return ""
+
+
+def load_kimi_cache() -> Dict[str, float]:
+    try:
+        if KIMI_CACHE_PATH.exists():
+            return json.loads(KIMI_CACHE_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return {}
+
+
+def save_kimi_cache(cache: Dict[str, float]):
+    try:
+        KIMI_CACHE_PATH.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
+    except Exception as e:
+        print(f"Failed to save Kimi cache: {e}", file=sys.stderr)
+
+
+def merge_load_kimi_cache(defaults: Dict[str, float] = None) -> Dict[str, float]:
+    """Load persistent Kimi cache and merge with provided defaults (if any)."""
+    cache = load_kimi_cache()
+    if defaults:
+        for k, v in defaults.items():
+            if k not in cache:
+                cache[k] = v
+    return cache
 
 # ============ 3c) Kimi 相关性评分 ============
 def kimi_score_relevance(paragraph: str, item: Dict[str,Any], intents: Dict[str,Any]) -> float:
@@ -422,31 +456,71 @@ def find_citations(paragraph: str) -> List[Dict[str,Any]]:
     pool += openalex_search(intents)
     pool = dedup_by_doi(pool)
 
-    # Fetch abstracts from Crossref for each paper
-    print("Fetching abstracts...", file=sys.stderr)
+    # 1) First pass: fast traditional scoring (no external LLM calls)
     for it in pool:
+        it["score"] = score_candidate(paragraph, intents, it)
+
+    # 2) Sort and select a smaller candidate set for Kimi scoring to avoid rate limits
+    pool.sort(key=lambda x: x["score"], reverse=True)
+    kimi_eval_count = min(TOP_N * MAX_KIMI_MULTIPLIER, len(pool))
+    top_candidates = pool[:kimi_eval_count]
+    lower_candidates = pool[kimi_eval_count:]
+
+    # 3) Fetch abstracts only for top candidates
+    print(f"Fetching abstracts for top {kimi_eval_count} candidates...", file=sys.stderr)
+    for it in top_candidates:
         doi = it.get("doi")
         if doi:
-            abstract = fetch_abstract(doi)
-            it["abstract"] = abstract
+            it["abstract"] = fetch_abstract(doi)
         else:
             it["abstract"] = ""
 
-    # Score candidates using both traditional and Kimi-based methods
-    print("Scoring candidates with Kimi...", file=sys.stderr)
-    for it in pool:
-        traditional_score = score_candidate(paragraph, intents, it)
-        kimi_score = kimi_score_relevance(paragraph, it, intents)
-        # Combine scores: 70% traditional, 30% Kimi-based
-        it["score"] = 0.7 * traditional_score + 0.3 * kimi_score
-    
+    # 4) Kimi scoring with persistent caching and rate control
+    kimi_cache: Dict[str, float] = merge_load_kimi_cache({})
+    if not KIMI_ENABLED:
+        print("Kimi scoring disabled by configuration/CLI; skipping LLM calls.", file=sys.stderr)
+        # Keep traditional scores
+        for idx, it in enumerate(top_candidates):
+            it["score"] = it.get("score", 0.0)
+    else:
+        print(f"Kimi scoring top {kimi_eval_count} candidates (rate-controlled, persistent cache)...", file=sys.stderr)
+        for idx, it in enumerate(top_candidates):
+            doi = (it.get("doi") or "").lower()
+            traditional = it.get("score", 0.0)
+            kimi_score = 0.0
+            try:
+                if doi and doi in kimi_cache:
+                    kimi_score = kimi_cache[doi]
+                else:
+                    kimi_score = kimi_score_relevance(paragraph, it, intents)
+                    if doi:
+                        kimi_cache[doi] = kimi_score
+                        # persist intermittently to avoid losing work on long runs
+                        if len(kimi_cache) % 10 == 0:
+                            save_kimi_cache(kimi_cache)
+            except Exception as e:
+                print(f"Kimi scoring error for {doi}: {e}", file=sys.stderr)
+                kimi_score = 0.0
+            # Combine scores: 70% traditional, 30% Kimi-based
+            it["score"] = 0.7 * traditional + 0.3 * kimi_score
+            # small progress log
+            print(f"[{idx+1}/{kimi_eval_count}] combined_score={it['score']:.3f}", file=sys.stderr)
+        # save final cache state
+        try:
+            save_kimi_cache(kimi_cache)
+        except Exception:
+            pass
+
+    # 5) Merge back and compute OA status for all candidates
+    pool = top_candidates + lower_candidates
+    print("Checking open access status...", file=sys.stderr)
     for it in pool:
         it.update(unpaywall_oa(it.get("doi","")))
 
+    # 6) Final sort and output
     pool.sort(key=lambda x: x["score"], reverse=True)
     top = pool[:TOP_N]
 
-    # 输出
     with open(OUT_JSONL, "a", encoding="utf-8") as fj, open(OUT_BIB, "a", encoding="utf-8") as fb, open(OUT_RIS, "a", encoding="utf-8") as fr:
         for it in top:
             it["bibtex"]   = build_bibtex(it)
@@ -463,6 +537,9 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="根据段落自动匹配参考文献（Kimi + WOS + Crossref + OpenAlex）")
     ap.add_argument("--text", help="直接传入一段文本", type=str)
     ap.add_argument("--file", help="从文件读取段落", type=str)
+    ap.add_argument("--no-kimi", help="Disable Kimi/LLM scoring (fast-only mode)", action="store_true")
+    ap.add_argument("--kimi-cache", help="Path to persistent Kimi cache (overrides config)", type=str)
+    ap.add_argument("--kimi-multiplier", help="Multiplier for how many top candidates receive Kimi scoring (default from config)", type=int)
     args = ap.parse_args()
 
     if args.file:
@@ -472,6 +549,23 @@ if __name__ == "__main__":
     else:
         print("请用 --text 或 --file 传入段落。")
         raise SystemExit(1)
+
+    # Apply CLI overrides for Kimi behavior
+    if args.no_kimi:
+        KIMI_ENABLED = False
+        print("Kimi/LLM scoring disabled via --no-kimi", file=sys.stderr)
+    if args.kimi_cache:
+        try:
+            KIMI_CACHE_PATH = pathlib.Path(args.kimi_cache)
+            print(f"Using Kimi cache path: {KIMI_CACHE_PATH}", file=sys.stderr)
+        except Exception as e:
+            print(f"Failed to set KIMI_CACHE_PATH from CLI: {e}", file=sys.stderr)
+    if args.kimi_multiplier:
+        try:
+            MAX_KIMI_MULTIPLIER = int(args.kimi_multiplier)
+            print(f"Kimi multiplier set to {MAX_KIMI_MULTIPLIER}", file=sys.stderr)
+        except Exception as e:
+            print(f"Invalid --kimi-multiplier value: {e}", file=sys.stderr)
 
     res = find_citations(paragraph)
     print(f"Found {len(res)} candidates (Top-{TOP_N}). 输出已写入：\n- {OUT_JSONL}\n- {OUT_BIB}\n- {OUT_RIS}")
