@@ -1,3 +1,4 @@
+![alt text](image.png)
 # 📚 CitationFinder: 自动化学术引用匹配系统  
 **Automatic Citation Retrieval & Ranking System (WOS + Crossref + OpenAlex + Kimi LLM)**
 本项目旨在解决写论文时 “根据一段文本自动找到最相关的学术文献” 这一痛点。 系统综合利用大型语言模型（Kimi）、WOS API、Crossref、OpenAlex 和 Unpaywall，实现从文本 → 检索意图 → 多源检索 → 评分 → 输出 BibTeX/RIS** 的自动化流程
@@ -22,40 +23,6 @@ This project addresses the pain point of automatically identifying the most rele
 | 🧮 **智能打分** | 按关键词、主题、期刊白名单、时效性计算文献相关度。<br>Ranks papers by relevance and quality heuristics. |
 | 🟢 **开放获取标注** | 调用 Unpaywall 标注 OA 状态并返回可访问链接。<br>Checks open-access availability using Unpaywall. |
 | 📦 **结构化导出** | 输出 `.jsonl` 与 `.bib` 文件，便于导入 Zotero 或 LaTeX。<br>Exports both JSONL and BibTeX formats. |
-
----
-
-## 🧩 系统架构 | Architecture
-flowchart TD
-
-A[Input Paragraph] --> B[Kimi Extractor<br/>Extract: topics, keywords, entities, years]
-B --> C{Query Databases}
-
-C --> C1[WOS API]
-C --> C2[Crossref API]
-C --> C3[OpenAlex API]
-
-C1 --> D[Merge Results<br/>Deduplicate by DOI]
-C2 --> D
-C3 --> D
-
-D --> E[Traditional Scoring<br/>Keyword/Topic/Year/Journal match]
-E --> F[Select Top (N × Multiplier)]
-
-F --> G[Kimi Semantic Scoring<br/>Title + Abstract relevance]
-G --> H[Score Fusion<br/>0.7*traditional + 0.3*kimi]
-
-H --> I[Sort & Select Top-N]
-
-I --> J[Unpaywall OA Check]
-
-J --> K[Output:
-- BibTeX
-- RIS
-- JSONL]
-
-
----
 
 ## 🗂️ 项目文件结构 | Project Structure
 
