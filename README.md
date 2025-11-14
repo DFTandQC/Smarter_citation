@@ -1,6 +1,7 @@
-# 📚 CitationFinder — 自动化学术引用匹配系统  
-**CitationFinder: AI-powered Reference Matching for Academic Writing**
-
+# 📚 CitationFinder: 自动化学术引用匹配系统  
+**Automatic Citation Retrieval & Ranking System (WOS + Crossref + OpenAlex + Kimi LLM)**
+本项目旨在解决写论文时**“根据一段文本自动找到最相关的学术文献”这一痛点。
+系统综合利用大型语言模型（Kimi）、WOS API、Crossref、OpenAlex 和 Unpaywall，实现从文本 → 检索意图 → 多源检索 → 评分 → 输出 BibTeX/RIS** 的自动化流程
 ### Author: Ruoyu Tang
 
 > 🧠 一款基于 Kimi (Moonshot AI) + Web of Science + Crossref + OpenAlex 的智能引用工具，  
