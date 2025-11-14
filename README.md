@@ -5,13 +5,6 @@
 This project addresses the pain point of automatically identifying the most relevant academic literature based on a given text when writing papers. The system integrates large language models (Kimi), WOS API, Crossref, OpenAlex, and Unpaywall to automate the entire workflow: text → retrieval intent → multi-source search → scoring → outputting BibTeX/RIS.
 ### Author: Ruoyu Tang
 
-> 🧠 一款基于 Kimi (Moonshot AI) + Web of Science + Crossref + OpenAlex 的智能引用工具，  
-> 能根据论文段落自动检索高质量参考文献并输出 BibTeX/JSON 格式。  
-
-> 🧩 CitationFinder automatically suggests high-quality scientific references for any paragraph  
-> using **Kimi (Moonshot AI)** and multiple scholarly databases (**Web of Science, Crossref, OpenAlex, Unpaywall**).  
-> Outputs are ready for **LaTeX, Zotero**, or any reference manager.
-
 ---
 
 ## 🚀 功能特性 | Features
