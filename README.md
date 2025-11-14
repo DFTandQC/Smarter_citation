@@ -1,7 +1,7 @@
 # 📚 CitationFinder: 自动化学术引用匹配系统  
 **Automatic Citation Retrieval & Ranking System (WOS + Crossref + OpenAlex + Kimi LLM)**
-本项目旨在解决写论文时**“根据一段文本自动找到最相关的学术文献”这一痛点。
-系统综合利用大型语言模型（Kimi）、WOS API、Crossref、OpenAlex 和 Unpaywall，实现从文本 → 检索意图 → 多源检索 → 评分 → 输出 BibTeX/RIS** 的自动化流程
+本项目旨在解决写论文时 “根据一段文本自动找到最相关的学术文献” 这一痛点。 系统综合利用大型语言模型（Kimi）、WOS API、Crossref、OpenAlex 和 Unpaywall，实现从文本 → 检索意图 → 多源检索 → 评分 → 输出 BibTeX/RIS** 的自动化流程
+This project addresses the pain point of automatically identifying the most relevant academic literature based on a given text when writing papers. The system integrates large language models (Kimi), WOS API, Crossref, OpenAlex, and Unpaywall to automate the entire workflow: text → retrieval intent → multi-source search → scoring → outputting BibTeX/RIS.
 ### Author: Ruoyu Tang
 
 > 🧠 一款基于 Kimi (Moonshot AI) + Web of Science + Crossref + OpenAlex 的智能引用工具，  
@@ -26,6 +26,33 @@
 ---
 
 ## 🧩 系统架构 | Architecture
+flowchart TD
+
+A[Input Paragraph] --> B[Kimi Extractor<br/>Extract: topics, keywords, entities, years]
+B --> C{Query Databases}
+
+C --> C1[WOS API]
+C --> C2[Crossref API]
+C --> C3[OpenAlex API]
+
+C1 --> D[Merge Results<br/>Deduplicate by DOI]
+C2 --> D
+C3 --> D
+
+D --> E[Traditional Scoring<br/>Keyword/Topic/Year/Journal match]
+E --> F[Select Top (N × Multiplier)]
+
+F --> G[Kimi Semantic Scoring<br/>Title + Abstract relevance]
+G --> H[Score Fusion<br/>0.7*traditional + 0.3*kimi]
+
+H --> I[Sort & Select Top-N]
+
+I --> J[Unpaywall OA Check]
+
+J --> K[Output:
+- BibTeX
+- RIS
+- JSONL]
 
 
 ---
@@ -100,3 +127,6 @@ python cite_matcher.py --text "我们研究喷气发动机润滑油在高温下�
 # 或从文件读取
 python cite_matcher.py --file paragraph.txt
 ```
+
+📜 License
+MIT License
