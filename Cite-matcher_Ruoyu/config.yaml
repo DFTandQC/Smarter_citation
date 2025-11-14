@@ -14,13 +14,21 @@ wos:
   # 命中这些期刊可加分（可增删）
   journal_whitelist:
     - "Atmospheric Chemistry and Physics"
-    - "Journal of Geophysical Research: Atmospheres"
-    - "Environmental Science & Technology"
     - "Atmospheric Measurement Techniques"
+    - "Environmental Science & Technology"
+    - "Environmental Research Letters"
     - "Geophysical Research Letters"
     - "Nature"
-    - "Science"
+    - "Nature Geoscience"
+    - "Nature Communications"
+    - "Science Advances"
+    - "Journal of Geophysical Research: Atmospheres"
+    - "Journal of the Atmospheric Sciences"
+    - "Journal of Physical Chemistry A"
     - "PNAS"
+    - "Science"
+    
+    
 
 crossref:
   works_endpoint: "https://api.crossref.org/works/"
